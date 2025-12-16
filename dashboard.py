@@ -11,14 +11,17 @@ TARGET_DATE = "2026-03-31"
 
 st.set_page_config(page_title="NHAI Future Core", layout="wide")
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (FIXED) ---
 st.markdown("""
 <style>
+    /* Metric Styling */
     [data-testid="stMetricValue"] {
         font-size: 26px;
         font-weight: bold;
         color: #007bff;
     }
+    
+    /* Button Styling */
     div.stButton > button {
         width: 100%;
         background-image: linear-gradient(to right, #007bff, #0062cc);
@@ -27,11 +30,19 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.6rem 1rem;
         border: none;
+        position: relative; /* Ensure it's not hidden */
+        z-index: 99; /* Force button to be on top of charts */
     }
     div.stButton > button:hover {
         background-image: linear-gradient(to right, #0062cc, #004a99);
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         color: white;
+    }
+
+    /* FIX: Make Selectboxes and Expanders Clickable over Charts */
+    div[data-testid="stSelectbox"], div[data-testid="stExpander"] {
+        position: relative;
+        z-index: 100; /* Higher than charts */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -44,13 +55,13 @@ FORECAST_COLORS = ["#C9F2FF", "#A9E7FF", "#7DD9FF", "#4EC8FF"]
 # --- HELPER: MOBILE CHART CONFIG ---
 def make_chart_static(fig):
     """
-    Disables zoom, pan, and drag modes for mobile optimization.
+    Disables zoom, pan, and drag modes so the chart doesn't hijack scroll.
     """
     fig.update_layout(
         dragmode=False,  # Disables box/lasso selection
-        xaxis=dict(fixedrange=True),  # Disables X-axis zoom/pan
-        yaxis=dict(fixedrange=True),  # Disables Y-axis zoom/pan
-        margin=dict(l=10, r=10, t=30, b=10) # Tighter margins for mobile
+        xaxis=dict(fixedrange=True),  # LOCKS X-axis (No Zoom/Pan)
+        yaxis=dict(fixedrange=True),  # LOCKS Y-axis (No Zoom/Pan)
+        margin=dict(l=10, r=10, t=30, b=10) # Tighter margins
     )
     return fig
 
@@ -83,7 +94,8 @@ col_header, col_btn = st.columns([4, 1])
 with col_header:
     st.title("FASTag Annual Pass")
 with col_btn:
-    st.write("")
+    st.write("") # Spacer
+    # This button uses the Z-Index fix so it should be clickable now
     if st.button("🔄 Refresh Live Data"):
         st.rerun()
 
@@ -161,10 +173,16 @@ if not df_raw.empty:
         st.plotly_chart(fig_rev, use_container_width=True, config=PLOT_CONFIG)
 
     # Daily Breakdown (Actual)
+    st.markdown("---")
     st.subheader("Daily Breakdown (Actuals)")
+    
+    # 1. Spacer to separate chart from dropdown
+    st.write("") 
+    
     df_sorted['Month_Name'] = df_sorted['Date'].dt.strftime('%B %Y')
     available_months = df_sorted['Month_Name'].unique().tolist()
 
+    # 2. Dropdown to choose month (Fixed Z-Index)
     selected_month = st.selectbox("Select Month (History):", available_months, key="hist_month")
 
     if selected_month:
@@ -203,6 +221,7 @@ if not df_raw.empty:
         col_b.metric("Median Daily Sales", f"{median_sales:,.0f}")
 
     # Raw data
+    st.write("")
     with st.expander("See Raw Data (Actuals)", expanded=False):
         df_disp = df_sorted.copy()
         df_disp['Date'] = df_disp['Date'].dt.strftime('%d %b %Y')
@@ -303,10 +322,14 @@ if not df_raw.empty:
                 st.plotly_chart(fig_f_rev, use_container_width=True, config=PLOT_CONFIG)
 
             # Daily Forecast
+            st.markdown("---")
             st.subheader("Future Daily Breakdown (Select Month)")
+            
             future_forecast['Month_Name'] = future_forecast['ds'].dt.strftime('%B %Y')
             f_available_months = future_forecast['Month_Name'].unique().tolist()
-
+            
+            # 3. Future Month Dropdown (Fixed Z-Index)
+            st.write("")
             f_selected_month = st.selectbox("Select Future Month:", f_available_months, key="future_month")
 
             if f_selected_month:
@@ -339,6 +362,7 @@ if not df_raw.empty:
                 fc_b.metric(f"Projected Median Sales ({f_selected_month})", f"{f_median:,.0f}")
 
             # Raw forecast table
+            st.write("")
             with st.expander("See Raw Forecast Data"):
                 f_disp = future_forecast[['Date', 'Predicted Sales']].copy()
                 f_disp['Date'] = pd.to_datetime(f_disp['Date']).dt.strftime('%d %b %Y')
