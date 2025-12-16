@@ -37,21 +37,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- COLOR PALETTES ---
-# Actual Volume – Pastel Blue
 ACTUAL_COLORS = ["#C9E9FF", "#A7D8FF", "#7CC2FF", "#55A9FF"]
-
-# Revenue – Mint Green
 REVENUE_COLORS = ["#D3F8E2", "#A9EFD3", "#7DE3C4", "#52D2AD"]
-
-# Forecast – Sky Blue → Aqua
 FORECAST_COLORS = ["#C9F2FF", "#A9E7FF", "#7DD9FF", "#4EC8FF"]
 
+# --- HELPER: MOBILE CHART CONFIG ---
+def make_chart_static(fig):
+    """
+    Disables zoom, pan, and drag modes for mobile optimization.
+    """
+    fig.update_layout(
+        dragmode=False,  # Disables box/lasso selection
+        xaxis=dict(fixedrange=True),  # Disables X-axis zoom/pan
+        yaxis=dict(fixedrange=True),  # Disables Y-axis zoom/pan
+        margin=dict(l=10, r=10, t=30, b=10) # Tighter margins for mobile
+    )
+    return fig
+
+# Config to hide the floating toolbar
+PLOT_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 def fetch_data():
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(API_URL, headers=headers)
         data = response.json()
         
@@ -67,10 +75,8 @@ def fetch_data():
     except:
         return pd.DataFrame()
 
-
 def format_crores(value):
     return f"₹ {value / 10000000:.2f} Cr"
-
 
 # --- HEADER ---
 col_header, col_btn = st.columns([4, 1])
@@ -81,10 +87,6 @@ with col_btn:
     if st.button("🔄 Refresh Live Data"):
         st.rerun()
 
-
-# ==========================================
-# PART 1: ACTUAL LIVE DATA
-# ==========================================
 df_raw = fetch_data()
 
 if not df_raw.empty:
@@ -125,16 +127,16 @@ if not df_raw.empty:
             color='Active Passes', color_continuous_scale=ACTUAL_COLORS
         )
         fig_vol.update_traces(
-            textfont_size=16, 
-            textfont_color="white", 
-            textposition="outside", 
-            cliponaxis=False
+            textfont_size=16, textfont_color="white", 
+            textposition="outside", cliponaxis=False
         )
         fig_vol.update_layout(
             coloraxis_showscale=False, 
             yaxis=dict(range=[0, max_vol * 1.3])
         )
-        st.plotly_chart(fig_vol, use_container_width=True)
+        # Apply Mobile Fixes
+        fig_vol = make_chart_static(fig_vol)
+        st.plotly_chart(fig_vol, use_container_width=True, config=PLOT_CONFIG)
 
     # Monthly Revenue (Actual)
     with col2:
@@ -147,16 +149,16 @@ if not df_raw.empty:
             color='Revenue (Cr)', color_continuous_scale=REVENUE_COLORS
         )
         fig_rev.update_traces(
-            textfont_size=16, 
-            textfont_color="white", 
-            textposition="outside", 
-            cliponaxis=False
+            textfont_size=16, textfont_color="white", 
+            textposition="outside", cliponaxis=False
         )
         fig_rev.update_layout(
             yaxis=dict(title="Revenue (Cr)", range=[0, max_rev * 1.3]), 
             coloraxis_showscale=False
         )
-        st.plotly_chart(fig_rev, use_container_width=True)
+        # Apply Mobile Fixes
+        fig_rev = make_chart_static(fig_rev)
+        st.plotly_chart(fig_rev, use_container_width=True, config=PLOT_CONFIG)
 
     # Daily Breakdown (Actual)
     st.subheader("Daily Breakdown (Actuals)")
@@ -174,10 +176,8 @@ if not df_raw.empty:
             color="Active Passes", color_continuous_scale=ACTUAL_COLORS
         )
         fig_daily.update_traces(
-            textfont_size=14, 
-            textfont_color="white", 
-            textposition="outside", 
-            cliponaxis=False
+            textfont_size=14, textfont_color="white", 
+            textposition="outside", cliponaxis=False
         )
         fig_daily.update_layout(
             coloraxis_showscale=False, 
@@ -185,7 +185,9 @@ if not df_raw.empty:
         )
         fig_daily.update_xaxes(dtick="D1", tickformat="%d %b")
 
-        st.plotly_chart(fig_daily, use_container_width=True)
+        # Apply Mobile Fixes
+        fig_daily = make_chart_static(fig_daily)
+        st.plotly_chart(fig_daily, use_container_width=True, config=PLOT_CONFIG)
 
         calc_df = day_wise_df.copy()
         current_month_str = pd.Timestamp.now().strftime('%B %Y')
@@ -208,9 +210,6 @@ if not df_raw.empty:
 
     st.markdown("---")
 
-    # ==========================================
-    # PART 2: FUTURE FORECAST
-    # ==========================================
     st.header(f"2. Strategic Forecast (Until March 2026)")
 
     with st.spinner("Calculating AI Projections..."):
@@ -270,16 +269,16 @@ if not df_raw.empty:
                     color='Predicted Sales', color_continuous_scale=FORECAST_COLORS
                 )
                 fig_f_vol.update_traces(
-                    textfont_size=16, 
-                    textfont_color="white", 
-                    textposition="outside", 
-                    cliponaxis=False
+                    textfont_size=16, textfont_color="white", 
+                    textposition="outside", cliponaxis=False
                 )
                 fig_f_vol.update_layout(
                     coloraxis_showscale=False, 
                     yaxis=dict(range=[0, max_f_vol * 1.3])
                 )
-                st.plotly_chart(fig_f_vol, use_container_width=True)
+                # Apply Mobile Fixes
+                fig_f_vol = make_chart_static(fig_f_vol)
+                st.plotly_chart(fig_f_vol, use_container_width=True, config=PLOT_CONFIG)
 
             # Forecast Revenue
             with fc2:
@@ -292,16 +291,16 @@ if not df_raw.empty:
                     color='Revenue (Cr)', color_continuous_scale=FORECAST_COLORS
                 )
                 fig_f_rev.update_traces(
-                    textfont_size=16, 
-                    textfont_color="white", 
-                    textposition="outside", 
-                    cliponaxis=False
+                    textfont_size=16, textfont_color="white", 
+                    textposition="outside", cliponaxis=False
                 )
                 fig_f_rev.update_layout(
                     yaxis=dict(title="Revenue (Cr)", range=[0, max_f_rev * 1.3]), 
                     coloraxis_showscale=False
                 )
-                st.plotly_chart(fig_f_rev, use_container_width=True)
+                # Apply Mobile Fixes
+                fig_f_rev = make_chart_static(fig_f_rev)
+                st.plotly_chart(fig_f_rev, use_container_width=True, config=PLOT_CONFIG)
 
             # Daily Forecast
             st.subheader("Future Daily Breakdown (Select Month)")
@@ -319,10 +318,8 @@ if not df_raw.empty:
                     color='Predicted Sales', color_continuous_scale=FORECAST_COLORS
                 )
                 fig_f_daily.update_traces(
-                    textfont_size=14, 
-                    textfont_color="white", 
-                    textposition="outside", 
-                    cliponaxis=False
+                    textfont_size=14, textfont_color="white", 
+                    textposition="outside", cliponaxis=False
                 )
                 fig_f_daily.update_layout(
                     coloraxis_showscale=False, 
@@ -330,7 +327,9 @@ if not df_raw.empty:
                 )
                 fig_f_daily.update_xaxes(dtick="D1", tickformat="%d %b")
 
-                st.plotly_chart(fig_f_daily, use_container_width=True)
+                # Apply Mobile Fixes
+                fig_f_daily = make_chart_static(fig_f_daily)
+                st.plotly_chart(fig_f_daily, use_container_width=True, config=PLOT_CONFIG)
 
                 f_avg = f_day_wise['Predicted Sales'].mean()
                 f_median = f_day_wise['Predicted Sales'].median()
