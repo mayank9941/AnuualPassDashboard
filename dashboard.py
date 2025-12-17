@@ -11,17 +11,14 @@ TARGET_DATE = "2026-03-31"
 
 st.set_page_config(page_title="NHAI Future Core", layout="wide")
 
-# --- CUSTOM CSS (FIXED) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Metric Styling */
     [data-testid="stMetricValue"] {
         font-size: 26px;
         font-weight: bold;
         color: #007bff;
     }
-    
-    /* Button Styling */
     div.stButton > button {
         width: 100%;
         background-image: linear-gradient(to right, #007bff, #0062cc);
@@ -30,19 +27,11 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.6rem 1rem;
         border: none;
-        position: relative; /* Ensure it's not hidden */
-        z-index: 99; /* Force button to be on top of charts */
+        z-index: 99;
     }
-    div.stButton > button:hover {
-        background-image: linear-gradient(to right, #0062cc, #004a99);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        color: white;
-    }
-
-    /* FIX: Make Selectboxes and Expanders Clickable over Charts */
     div[data-testid="stSelectbox"], div[data-testid="stExpander"] {
         position: relative;
-        z-index: 100; /* Higher than charts */
+        z-index: 100;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -61,12 +50,17 @@ def make_chart_static(fig):
         dragmode=False,  # Disables box/lasso selection
         xaxis=dict(fixedrange=True),  # LOCKS X-axis (No Zoom/Pan)
         yaxis=dict(fixedrange=True),  # LOCKS Y-axis (No Zoom/Pan)
-        margin=dict(l=10, r=10, t=30, b=10) # Tighter margins
+        margin=dict(l=10, r=10, t=30, b=10),
+        hovermode="x unified" # Better tooltip behavior for mobile
     )
     return fig
 
-# Config to hide the floating toolbar
-PLOT_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
+# CRITICAL: This config ensures touches scroll the PAGE, not the CHART
+PLOT_CONFIG = {
+    'displayModeBar': False, 
+    'scrollZoom': False,
+    'staticPlot': False 
+}
 
 def fetch_data():
     try:
@@ -94,8 +88,7 @@ col_header, col_btn = st.columns([4, 1])
 with col_header:
     st.title("FASTag Annual Pass")
 with col_btn:
-    st.write("") # Spacer
-    # This button uses the Z-Index fix so it should be clickable now
+    st.write("") 
     if st.button("🔄 Refresh Live Data"):
         st.rerun()
 
@@ -129,87 +122,52 @@ if not df_raw.empty:
 
     col1, col2 = st.columns(2)
 
-    # Monthly Volume (Actual)
     with col1:
         st.subheader("Monthly Volume (Actual)")
         max_vol = monthly_df['Active Passes'].max()
+        fig_vol = px.bar(monthly_df, x='Month Label', y='Active Passes', text_auto=True, color='Active Passes', color_continuous_scale=ACTUAL_COLORS)
+        fig_vol.update_traces(textfont_size=16, textfont_color="white", textposition="outside", cliponaxis=False)
+        fig_vol.update_layout(coloraxis_showscale=False, yaxis=dict(range=[0, max_vol * 1.3]))
         
-        fig_vol = px.bar(
-            monthly_df, x='Month Label', y='Active Passes', text_auto=True,
-            color='Active Passes', color_continuous_scale=ACTUAL_COLORS
-        )
-        fig_vol.update_traces(
-            textfont_size=16, textfont_color="white", 
-            textposition="outside", cliponaxis=False
-        )
-        fig_vol.update_layout(
-            coloraxis_showscale=False, 
-            yaxis=dict(range=[0, max_vol * 1.3])
-        )
-        # Apply Mobile Fixes
+        # Apply Mobile Fix
         fig_vol = make_chart_static(fig_vol)
         st.plotly_chart(fig_vol, use_container_width=True, config=PLOT_CONFIG)
 
-    # Monthly Revenue (Actual)
     with col2:
         st.subheader("Monthly Revenue (Actual)")
         max_rev = monthly_df['Revenue (Cr)'].max()
+        fig_rev = px.bar(monthly_df, x='Month Label', y='Revenue (Cr)', text=[f'{val:.2f} Cr' for val in monthly_df['Revenue (Cr)']], color='Revenue (Cr)', color_continuous_scale=REVENUE_COLORS)
+        fig_rev.update_traces(textfont_size=16, textfont_color="white", textposition="outside", cliponaxis=False)
+        fig_rev.update_layout(yaxis=dict(title="Revenue (Cr)", range=[0, max_rev * 1.3]), coloraxis_showscale=False)
         
-        fig_rev = px.bar(
-            monthly_df, x='Month Label', y='Revenue (Cr)', 
-            text=[f'{val:.2f} Cr' for val in monthly_df['Revenue (Cr)']], 
-            color='Revenue (Cr)', color_continuous_scale=REVENUE_COLORS
-        )
-        fig_rev.update_traces(
-            textfont_size=16, textfont_color="white", 
-            textposition="outside", cliponaxis=False
-        )
-        fig_rev.update_layout(
-            yaxis=dict(title="Revenue (Cr)", range=[0, max_rev * 1.3]), 
-            coloraxis_showscale=False
-        )
-        # Apply Mobile Fixes
+        # Apply Mobile Fix
         fig_rev = make_chart_static(fig_rev)
         st.plotly_chart(fig_rev, use_container_width=True, config=PLOT_CONFIG)
 
-    # Daily Breakdown (Actual)
+    # Daily Breakdown
     st.markdown("---")
     st.subheader("Daily Breakdown (Actuals)")
-    
-    # 1. Spacer to separate chart from dropdown
     st.write("") 
     
     df_sorted['Month_Name'] = df_sorted['Date'].dt.strftime('%B %Y')
     available_months = df_sorted['Month_Name'].unique().tolist()
-
-    # 2. Dropdown to choose month (Fixed Z-Index)
     selected_month = st.selectbox("Select Month (History):", available_months, key="hist_month")
 
     if selected_month:
         day_wise_df = df_sorted[df_sorted['Month_Name'] == selected_month].sort_values('Date')
         max_daily = day_wise_df['Active Passes'].max()
 
-        fig_daily = px.bar(
-            day_wise_df, x='Date', y='Active Passes', text_auto=True,
-            color="Active Passes", color_continuous_scale=ACTUAL_COLORS
-        )
-        fig_daily.update_traces(
-            textfont_size=14, textfont_color="white", 
-            textposition="outside", cliponaxis=False
-        )
-        fig_daily.update_layout(
-            coloraxis_showscale=False, 
-            yaxis=dict(range=[0, max_daily * 1.3])
-        )
+        fig_daily = px.bar(day_wise_df, x='Date', y='Active Passes', text_auto=True, color="Active Passes", color_continuous_scale=ACTUAL_COLORS)
+        fig_daily.update_traces(textfont_size=14, textfont_color="white", textposition="outside", cliponaxis=False)
+        fig_daily.update_layout(coloraxis_showscale=False, yaxis=dict(range=[0, max_daily * 1.3]))
         fig_daily.update_xaxes(dtick="D1", tickformat="%d %b")
 
-        # Apply Mobile Fixes
+        # Apply Mobile Fix
         fig_daily = make_chart_static(fig_daily)
         st.plotly_chart(fig_daily, use_container_width=True, config=PLOT_CONFIG)
 
         calc_df = day_wise_df.copy()
         current_month_str = pd.Timestamp.now().strftime('%B %Y')
-
         if selected_month == current_month_str and not calc_df.empty:
             calc_df = calc_df.iloc[:-1]
 
@@ -220,7 +178,6 @@ if not df_raw.empty:
         col_a.metric("Avg Daily Sales (Excl. Today)", f"{avg_sales:,.0f}")
         col_b.metric("Median Daily Sales", f"{median_sales:,.0f}")
 
-    # Raw data
     st.write("")
     with st.expander("See Raw Data (Actuals)", expanded=False):
         df_disp = df_sorted.copy()
@@ -233,16 +190,10 @@ if not df_raw.empty:
 
     with st.spinner("Calculating AI Projections..."):
         training_df = df_sorted.iloc[1:].copy()
-
         prophet_df = training_df[['Date', 'Active Passes']].rename(columns={'Date': 'ds', 'Active Passes': 'y'})
         prophet_df = prophet_df.sort_values('ds')
 
-        m = Prophet(
-            yearly_seasonality=False,
-            weekly_seasonality=True,
-            daily_seasonality=False,
-            changepoint_prior_scale=0.2
-        )
+        m = Prophet(yearly_seasonality=False, weekly_seasonality=True, daily_seasonality=False, changepoint_prior_scale=0.2)
         m.fit(prophet_df)
 
         last_date = prophet_df['ds'].max()
@@ -257,10 +208,10 @@ if not df_raw.empty:
             future_forecast['yhat'] = future_forecast['yhat'].clip(lower=0)
             future_forecast['Predicted Sales'] = future_forecast['yhat'].round().astype(int)
             future_forecast['Date'] = future_forecast['ds'].dt.date
+            future_forecast['Month_Year'] = future_forecast['ds'].dt.to_period('M')
 
             future_total_sales = future_forecast['Predicted Sales'].sum()
             future_total_revenue = future_total_sales * PASS_PRICE
-
             grand_total_sales = total_active + future_total_sales
             grand_total_revenue = total_revenue + future_total_revenue
 
@@ -270,7 +221,6 @@ if not df_raw.empty:
             fkpi3.metric("Forecast Horizon", "March 2026")
 
             # Monthly Forecast
-            future_forecast['Month_Year'] = future_forecast['ds'].dt.to_period('M')
             f_monthly_df = future_forecast.groupby('Month_Year')['Predicted Sales'].sum().reset_index()
             f_monthly_df['Month Label'] = f_monthly_df['Month_Year'].dt.strftime('%b %Y')
             f_monthly_df['Revenue (Cr)'] = (f_monthly_df['Predicted Sales'] * PASS_PRICE) / 10000000
@@ -278,46 +228,25 @@ if not df_raw.empty:
 
             fc1, fc2 = st.columns(2)
 
-            # Forecast Volume
             with fc1:
                 st.subheader("Projected Monthly Volume")
                 max_f_vol = f_monthly_df['Predicted Sales'].max()
+                fig_f_vol = px.bar(f_monthly_df, x='Month Label', y='Predicted Sales', text_auto=True, color='Predicted Sales', color_continuous_scale=FORECAST_COLORS)
+                fig_f_vol.update_traces(textfont_size=16, textfont_color="white", textposition="outside", cliponaxis=False)
+                fig_f_vol.update_layout(coloraxis_showscale=False, yaxis=dict(range=[0, max_f_vol * 1.3]))
                 
-                fig_f_vol = px.bar(
-                    f_monthly_df, x='Month Label', y='Predicted Sales', text_auto=True,
-                    color='Predicted Sales', color_continuous_scale=FORECAST_COLORS
-                )
-                fig_f_vol.update_traces(
-                    textfont_size=16, textfont_color="white", 
-                    textposition="outside", cliponaxis=False
-                )
-                fig_f_vol.update_layout(
-                    coloraxis_showscale=False, 
-                    yaxis=dict(range=[0, max_f_vol * 1.3])
-                )
-                # Apply Mobile Fixes
+                # Apply Mobile Fix
                 fig_f_vol = make_chart_static(fig_f_vol)
                 st.plotly_chart(fig_f_vol, use_container_width=True, config=PLOT_CONFIG)
 
-            # Forecast Revenue
             with fc2:
                 st.subheader("Projected Monthly Revenue")
                 max_f_rev = f_monthly_df['Revenue (Cr)'].max()
+                fig_f_rev = px.bar(f_monthly_df, x='Month Label', y='Revenue (Cr)', text=[f'{val:.2f} Cr' for val in f_monthly_df['Revenue (Cr)']], color='Revenue (Cr)', color_continuous_scale=FORECAST_COLORS)
+                fig_f_rev.update_traces(textfont_size=16, textfont_color="white", textposition="outside", cliponaxis=False)
+                fig_f_rev.update_layout(yaxis=dict(title="Revenue (Cr)", range=[0, max_f_rev * 1.3]), coloraxis_showscale=False)
                 
-                fig_f_rev = px.bar(
-                    f_monthly_df, x='Month Label', y='Revenue (Cr)', 
-                    text=[f'{val:.2f} Cr' for val in f_monthly_df['Revenue (Cr)']],  
-                    color='Revenue (Cr)', color_continuous_scale=FORECAST_COLORS
-                )
-                fig_f_rev.update_traces(
-                    textfont_size=16, textfont_color="white", 
-                    textposition="outside", cliponaxis=False
-                )
-                fig_f_rev.update_layout(
-                    yaxis=dict(title="Revenue (Cr)", range=[0, max_f_rev * 1.3]), 
-                    coloraxis_showscale=False
-                )
-                # Apply Mobile Fixes
+                # Apply Mobile Fix
                 fig_f_rev = make_chart_static(fig_f_rev)
                 st.plotly_chart(fig_f_rev, use_container_width=True, config=PLOT_CONFIG)
 
@@ -327,8 +256,6 @@ if not df_raw.empty:
             
             future_forecast['Month_Name'] = future_forecast['ds'].dt.strftime('%B %Y')
             f_available_months = future_forecast['Month_Name'].unique().tolist()
-            
-            # 3. Future Month Dropdown (Fixed Z-Index)
             st.write("")
             f_selected_month = st.selectbox("Select Future Month:", f_available_months, key="future_month")
 
@@ -336,32 +263,21 @@ if not df_raw.empty:
                 f_day_wise = future_forecast[future_forecast['Month_Name'] == f_selected_month]
                 max_f_daily = f_day_wise['Predicted Sales'].max()
 
-                fig_f_daily = px.bar(
-                    f_day_wise, x='Date', y='Predicted Sales', text_auto=True,
-                    color='Predicted Sales', color_continuous_scale=FORECAST_COLORS
-                )
-                fig_f_daily.update_traces(
-                    textfont_size=14, textfont_color="white", 
-                    textposition="outside", cliponaxis=False
-                )
-                fig_f_daily.update_layout(
-                    coloraxis_showscale=False, 
-                    yaxis=dict(range=[0, max_f_daily * 1.3])
-                )
+                fig_f_daily = px.bar(f_day_wise, x='Date', y='Predicted Sales', text_auto=True, color='Predicted Sales', color_continuous_scale=FORECAST_COLORS)
+                fig_f_daily.update_traces(textfont_size=14, textfont_color="white", textposition="outside", cliponaxis=False)
+                fig_f_daily.update_layout(coloraxis_showscale=False, yaxis=dict(range=[0, max_f_daily * 1.3]))
                 fig_f_daily.update_xaxes(dtick="D1", tickformat="%d %b")
 
-                # Apply Mobile Fixes
+                # Apply Mobile Fix
                 fig_f_daily = make_chart_static(fig_f_daily)
                 st.plotly_chart(fig_f_daily, use_container_width=True, config=PLOT_CONFIG)
 
                 f_avg = f_day_wise['Predicted Sales'].mean()
                 f_median = f_day_wise['Predicted Sales'].median()
-
                 fc_a, fc_b = st.columns(2)
-                fc_a.metric(f"Projected Avg Daily Sales ({f_selected_month})", f"{f_avg:,.0f}")
-                fc_b.metric(f"Projected Median Sales ({f_selected_month})", f"{f_median:,.0f}")
+                fc_a.metric(f"Projected Avg ({f_selected_month})", f"{f_avg:,.0f}")
+                fc_b.metric(f"Projected Median ({f_selected_month})", f"{f_median:,.0f}")
 
-            # Raw forecast table
             st.write("")
             with st.expander("See Raw Forecast Data"):
                 f_disp = future_forecast[['Date', 'Predicted Sales']].copy()
