@@ -228,9 +228,6 @@ if not df_raw.empty:
         target_date    = pd.to_datetime(TARGET_DATE)
         days_to_predict = (target_date - last_date).days
 
-        st.caption(f"🗓 Last actual date: **{last_date.strftime('%d %b %Y')}** | "
-                   f"Forecasting **{days_to_predict} days** ahead to **{target_date.strftime('%d %b %Y')}**")
-
         if days_to_predict > 0:
             future   = m.make_future_dataframe(periods=days_to_predict)
             forecast = m.predict(future)
