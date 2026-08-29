@@ -9,7 +9,7 @@ API_URL = "https://rajmargyatra.nhai.gov.in/nhai/api/annualpass/v2.0/passReport"
 PASS_PRICE_OLD = 3000
 PASS_PRICE_NEW = 3075
 PRICE_CHANGE_DATE = pd.Timestamp("2026-04-01")
-TARGET_DATE = "2026-07-31"
+TARGET_DATE = "2026-12-31"
 
 st.set_page_config(page_title="NHAI Future Core", layout="wide")
 
@@ -211,7 +211,7 @@ if not df_raw.empty:
     st.markdown("---")
 
     # ── SECTION 2: FORECAST ─────────────────────────────────────────────────
-    st.header("2. Strategic Forecast (Until July 2026)")
+    st.header("2. Strategic Forecast (Until December 2026)")
     st.caption("📌 Pass price: ₹3,000 up to 31 Mar 2026 | ₹3,075 from 1 Apr 2026 onwards")
 
     with st.spinner("Calculating AI Projections..."):
@@ -247,10 +247,34 @@ if not df_raw.empty:
             grand_total_sales    = total_active + future_total_sales
             grand_total_revenue  = total_revenue + future_total_revenue
 
-            fk1, fk2, fk3 = st.columns(3)
+            # 1 Crore milestone projection (cumulative actuals + forecast)
+            MILESTONE = 10_000_000
+            future_forecast['Cumulative Sales'] = total_active + future_forecast['Predicted Sales'].cumsum()
+            milestone_hits = future_forecast[future_forecast['Cumulative Sales'] >= MILESTONE]
+            if total_active >= MILESTONE:
+                milestone_label = "Achieved ✅"
+                milestone_delta = None
+            elif not milestone_hits.empty:
+                milestone_ts    = milestone_hits['ds'].iloc[0]
+                milestone_label = milestone_ts.strftime('%d %b %Y')
+                milestone_delta = f"{(milestone_ts - pd.Timestamp.now().normalize()).days} days to go"
+            else:
+                milestone_label = "Beyond Dec 2026"
+                milestone_delta = None
+
+            fk1, fk2, fk3, fk4 = st.columns(4)
             fk1.metric("Projected Grand Total Sales",    f"{grand_total_sales:,.0f}",  delta=f"+{future_total_sales:,}")
             fk2.metric("Projected Grand Total Revenue",  format_crores(grand_total_revenue), delta=f"+{format_crores(future_total_revenue)}")
-            fk3.metric("Forecast Horizon", "July 2026")
+            fk3.metric("Forecast Horizon", "December 2026")
+            fk4.metric("🎯 1 Crore Passes By", milestone_label, delta=milestone_delta, delta_color="off")
+
+            if total_active < MILESTONE and not milestone_hits.empty:
+                remaining_to_milestone = MILESTONE - total_active
+                st.success(
+                    f"🎯 **1 Crore Milestone:** At the projected pace, cumulative Annual Pass sales cross "
+                    f"**1,00,00,000** on **{milestone_label}** "
+                    f"({remaining_to_milestone:,} more passes needed from the current {total_active:,})."
+                )
 
             # Monthly forecast aggregation
             f_monthly_df = future_forecast.groupby('Month_Year').agg(
@@ -301,7 +325,7 @@ if not df_raw.empty:
                                                    range=[0, f_monthly_df['Revenue (Cr)'].max() * 1.3]))
                 st.plotly_chart(make_chart_static(fig_f_rev), use_container_width=True, config=PLOT_CONFIG)
 
-            st.info("💡 **Price Change Applied:** Revenue for Apr–Jul 2026 is calculated at ₹3,075/pass. Months up to Mar 2026 use ₹3,000/pass.")
+            st.info("💡 **Price Change Applied:** Revenue for Apr–Dec 2026 is calculated at ₹3,075/pass. Months up to Mar 2026 use ₹3,000/pass.")
 
             # ── Daily Forecast breakdown ──
             st.markdown("---")
