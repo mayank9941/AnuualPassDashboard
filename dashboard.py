@@ -5,7 +5,14 @@ import plotly.express as px
 from prophet import Prophet
 
 # --- CONFIGURATION ---
+# Historical report: rows are timestamped at IST midnight (18:30Z of the previous UTC day),
+# so dates MUST be converted to IST before taking .date(). Used for dates up to 2 days back.
 API_URL = "https://rajmargyatra.nhai.gov.in/nhai/api/annualpass/v2.0/passReport"
+# Realtime daily report: used for yesterday and today so the dashboard reflects live sales.
+REALTIME_API_URL = "https://rajmargnhai.in/nhai/api/annualpass/v2.0/getDMYAnnualPassReport"
+IST = "Asia/Kolkata"
+REALTIME_DAYS = 2          # today + yesterday come from the realtime API
+CACHE_TTL_SECONDS = 120    # API responses are cached briefly; Refresh button clears the cache
 PASS_PRICE_OLD = 3000
 PASS_PRICE_NEW = 3075
 PRICE_CHANGE_DATE = pd.Timestamp("2026-04-01")
@@ -99,21 +106,85 @@ def get_pass_price(date):
 def format_crores(value):
     return f"₹ {value / 10000000:.2f} Cr"
 
-def fetch_data():
+def today_ist():
+    return pd.Timestamp.now(tz=IST).normalize().tz_localize(None)
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_historical():
+    """Historical daily report (all dates). Returns DataFrame[Date, Active Passes, Pending]."""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(API_URL, headers=headers)
+        response = requests.get(API_URL, headers=headers, timeout=30)
         data = response.json()
-        if 'payload' in data:
-            df = pd.DataFrame(data['payload'])
-            df = df[['pass_start_date', 'active_count', 'pending_count']]
-            df['Date'] = pd.to_datetime(df['pass_start_date']).dt.date
-            df['Active Passes'] = pd.to_numeric(df['active_count'])
-            df['Pending'] = pd.to_numeric(df['pending_count'])
-            return df
+        if 'payload' not in data or not data['payload']:
+            return pd.DataFrame()
+        df = pd.DataFrame(data['payload'])
+        df = df[['pass_start_date', 'active_count', 'pending_count']]
+        # Timestamps are UTC (e.g. 2026-09-23T18:30Z == 24 Sep 00:00 IST) -> convert to IST first
+        df['Date'] = (pd.to_datetime(df['pass_start_date'], utc=True)
+                        .dt.tz_convert(IST).dt.tz_localize(None).dt.normalize())
+        df['Active Passes'] = pd.to_numeric(df['active_count'], errors='coerce').fillna(0).astype(int)
+        df['Pending']       = pd.to_numeric(df['pending_count'], errors='coerce').fillna(0).astype(int)
+        return df[['Date', 'Active Passes', 'Pending']]
+    except Exception:
         return pd.DataFrame()
-    except:
-        return pd.DataFrame()
+
+@st.cache_data(ttl=CACHE_TTL_SECONDS, show_spinner=False)
+def fetch_realtime_day(report_date_ddmmyyyy: str):
+    """Realtime report for one day. Returns dict(active, pending, report_on) or None on failure."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0', 'Content-Type': 'application/json'}
+        response = requests.post(REALTIME_API_URL, headers=headers, timeout=30,
+                                 json={"type": "daily", "report_date": report_date_ddmmyyyy})
+        data = response.json()
+        if str(data.get('status')) != '200' or 'data' not in data:
+            return None
+        d = data['data']
+        return {
+            'active':    int(d.get('active', 0) or 0),
+            'pending':   int(d.get('pending', 0) or 0),
+            'report_on': d.get('report_on'),
+        }
+    except Exception:
+        return None
+
+def fetch_data():
+    """
+    Combine both sources:
+      * historical API  -> every date up to (today - REALTIME_DAYS)
+      * realtime API    -> the last REALTIME_DAYS days (yesterday + today)
+    If the realtime call fails for a day, fall back to the historical row for that day.
+    Returns (DataFrame[Date, Active Passes, Pending, Source], realtime_meta dict).
+    """
+    hist = fetch_historical()
+    today = today_ist()
+    cutoff = today - pd.Timedelta(days=REALTIME_DAYS)   # last date served by historical API
+
+    hist_part = hist[hist['Date'] <= cutoff].copy() if not hist.empty else pd.DataFrame()
+    if not hist_part.empty:
+        hist_part['Source'] = 'Historical'
+
+    live_rows, meta = [], {'live_dates': [], 'fallback_dates': [], 'report_on': None}
+    for i in range(REALTIME_DAYS):
+        day = today - pd.Timedelta(days=i)
+        rt = fetch_realtime_day(day.strftime('%d-%m-%Y'))
+        if rt is not None:
+            live_rows.append({'Date': day, 'Active Passes': rt['active'],
+                              'Pending': rt['pending'], 'Source': 'Live'})
+            meta['live_dates'].append(day)
+            meta['report_on'] = meta['report_on'] or rt['report_on']
+        elif not hist.empty and (hist['Date'] == day).any():
+            row = hist[hist['Date'] == day].iloc[0]
+            live_rows.append({'Date': day, 'Active Passes': int(row['Active Passes']),
+                              'Pending': int(row['Pending']), 'Source': 'Historical'})
+            meta['fallback_dates'].append(day)
+
+    parts = [p for p in (hist_part, pd.DataFrame(live_rows)) if not p.empty]
+    if not parts:
+        return pd.DataFrame(), meta
+    df = pd.concat(parts, ignore_index=True)
+    df = df.drop_duplicates(subset='Date', keep='last').sort_values('Date').reset_index(drop=True)
+    return df, meta
 
 # --- HEADER ---
 col_header, col_btn = st.columns([4, 1])
@@ -122,13 +193,22 @@ with col_header:
 with col_btn:
     st.write("")
     if st.button("🔄 Refresh"):
+        st.cache_data.clear()
         st.rerun()
 
-df_raw = fetch_data()
+df_raw, rt_meta = fetch_data()
 
 if not df_raw.empty:
     # ── SECTION 1: ACTUALS ──────────────────────────────────────────────────
     st.header("1. Current Performance (Actuals)")
+
+    live_dates = ", ".join(d.strftime('%d %b') for d in sorted(rt_meta['live_dates']))
+    if live_dates:
+        as_of = f" (as of {rt_meta['report_on']} IST)" if rt_meta.get('report_on') else ""
+        st.caption(f"🟢 Live data for {live_dates}{as_of} · earlier dates from daily report")
+    if rt_meta['fallback_dates']:
+        fb = ", ".join(d.strftime('%d %b') for d in sorted(rt_meta['fallback_dates']))
+        st.warning(f"Realtime API unavailable for {fb}; showing daily-report figures instead.")
 
     df_raw['Date'] = pd.to_datetime(df_raw['Date'])
     df_sorted = df_raw.sort_values(by='Date', ascending=False)
@@ -142,7 +222,7 @@ if not df_raw.empty:
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric("Total Active Passes", f"{total_active:,}")
     kpi2.metric("Total Revenue", format_crores(total_revenue))
-    kpi3.metric("Latest Daily Sales", f"{latest_active:,}")
+    kpi3.metric(f"Latest Daily Sales ({latest_date_str})", f"{latest_active:,}")
 
     st.divider()
 
@@ -206,7 +286,7 @@ if not df_raw.empty:
     with st.expander("See Raw Data (Actuals)", expanded=False):
         df_disp = df_sorted.copy()
         df_disp['Date'] = df_disp['Date'].dt.strftime('%d %b %Y')
-        st.dataframe(df_disp[['Date', 'Active Passes', 'Pending']], use_container_width=True, hide_index=True)
+        st.dataframe(df_disp[['Date', 'Active Passes', 'Pending', 'Source']], use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
@@ -293,7 +373,7 @@ if not df_raw.empty:
             if current_month_period in f_monthly_df['Month_Year'].values:
                 actual_cur       = df_raw[df_raw['Date'].dt.to_period('M') == current_month_period]
                 actual_sales_cur = actual_cur['Active Passes'].sum()
-                actual_rev_cur   = (actual_cur['Active Passes'] * PASS_PRICE_OLD).sum()
+                actual_rev_cur   = actual_cur.apply(lambda r: r['Active Passes'] * get_pass_price(r['Date']), axis=1).sum()
                 idx = f_monthly_df[f_monthly_df['Month_Year'] == current_month_period].index[0]
                 f_monthly_df.loc[idx, 'Predicted Sales'] += actual_sales_cur
                 f_monthly_df.loc[idx, 'Revenue (Cr)']   += actual_rev_cur / 10_000_000
